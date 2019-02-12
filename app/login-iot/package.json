@@ -1,0 +1,23 @@
+{
+  "name": "@openknowledge/login-iot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prebuild": "rimraf dist/",
+    "build": "webpack index.js",
+    "postbuild": "zip -j dist/main.zip dist/main.js",
+    "clean": "rimraf dist"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-signature-v4": "^1.3.0"
+  },
+  "devDependencies": {
+    "rimraf": "^2.6.3",
+    "webpack": "^4.16.5",
+    "webpack-cli": "^3.1.0"
+  }
+}

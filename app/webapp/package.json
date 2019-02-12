@@ -1,0 +1,31 @@
+{
+  "name": "webapp",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "aws-iot-device-sdk": "^2.2.1",
+    "aws-sdk": "^2.288.0",
+    "axios": "^0.18.0",
+    "data-urls": "^1.0.1",
+    "parse-data-url": "^1.0.0",
+    "react": "^16.4.2",
+    "react-dom": "^16.4.2",
+    "react-router": "^4.3.1",
+    "react-router-dom": "^4.3.1",
+    "react-scripts": "1.1.4",
+    "react-webcam": "^1.0.1",
+    "shortid": "^2.2.12",
+    "styled-components": "^3.4.2"
+  },
+  "scripts": {
+    "install": "yarn",
+    "start": "export HTTPS=true; react-scripts start",
+    "build": "react-scripts build",
+    "clean": "rimraf build/",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
+  },
+  "devDependencies": {
+    "rimraf": "^2.6.3"
+  }
+}

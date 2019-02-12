@@ -1,0 +1,12 @@
+.idea
+target
+*.iml
+.env
+packaged.yaml
+node_modules
+dist/
+
+printjob
+autostart/
+app/webapp-status
+deploy-production.sh

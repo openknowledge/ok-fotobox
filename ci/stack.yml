@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description:
+  OK Selfie Cam AWS Stack
+Parameters:
+  FotobucketName:
+    Type: String
+  WebAppBucketName:
+    Type: String
+  IotUrl:
+    Type: String
+Resources:
+  WebAppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref WebAppBucketName
+      AccessControl: "PublicRead"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+            - "*"
+            AllowedMethods:
+            - "GET"
+            - "PUT"
+            - "POST"
+            - "DELETE"
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - "x-amz-server-side-encryption"
+              - "x-amz-request-id"
+              - "x-amz-id-2"
+            MaxAge: 3000
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref FotobucketName
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+          - "*"
+          AllowedMethods:
+          - "GET"
+          - "PUT"
+          - "POST"
+          - "DELETE"
+          AllowedOrigins:
+          - "*"
+          ExposedHeaders:
+          - "x-amz-server-side-encryption"
+          - "x-amz-request-id"
+          - "x-amz-id-2"
+          MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          -
+            ExpirationInDays: 1
+            NoncurrentVersionExpirationInDays: 1
+            Prefix: "processed/"
+            Id: DeleteImage
+            Status: "Enabled"
+      NotificationConfiguration:
+        LambdaConfigurations:
+        -
+          Event: s3:ObjectCreated:*
+          Filter:
+            S3Key:
+              Rules:
+                - Name: "prefix"
+                  Value: "uploads/"
+          Function:
+            Fn::GetAtt:
+            - "ResizeImage"
+            - "Arn"
+        -
+          Event: s3:ObjectCreated:*
+          Filter:
+            S3Key:
+              Rules:
+                - Name: "prefix"
+                  Value: "resized/"
+          Function:
+            Fn::GetAtt:
+              - "RenderImage"
+              - "Arn"
+    DependsOn:
+      - BucketPermission
+      - RenderImage
+      - ResizeImage
+  RenderImage:
+    Type: AWS::Serverless::Function
+    Properties:
+      MemorySize: 3000
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: "de.openknowledge.entrypoint.RenderFrameMain"
+      Runtime: "java8"
+      CodeUri: "../app/image-lambda/target/selfiecam.jar"
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref FotobucketName
+          IOT_URL: !Ref IotUrl
+  ResizeImage:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 3000
+      Timeout: 30
+      Handler: "de.openknowledge.entrypoint.ResizeImageMain"
+      Runtime: "java8"
+      CodeUri: "../app/image-lambda/target/selfiecam.jar"
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref FotobucketName
+          IOT_URL: !Ref IotUrl
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal: {Service: [lambda.amazonaws.com]}
+            Action: ['sts:AssumeRole']
+        ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        Policies:
+        - PolicyName: S3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 's3:*'
+              - 'iot:*'
+              Resource: "*"
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 'logs:*'
+              - 'cloudwatch:*'
+              - 'iot:*'
+              Resource: "*"
+  BucketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref RenderImage
+      Principal: s3.amazonaws.com
+    DependsOn: RenderImage
+  BucketPermissionThumbnail:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ResizeImage
+      Principal: s3.amazonaws.com
+    DependsOn: ResizeImage
+
+  # Frontend
+  IotUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies:
+      - PolicyName: S3Policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - 'iot:Publish'
+            - 'iot:Connect'
+            - 'iot:Receive'
+            - 'iot:Subscribe'
+            Resource: "*"
+  UploadUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies:
+        - PolicyName: S3Upload
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:PutObjectTagging'
+              - 's3:GetObjectTagging'
+              Resource:
+                Fn::Join:
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - Ref: ImageBucket
+                    - "/*"
+  UploadUserKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      Serial: 0
+      UserName: !Ref UploadUser
+  IotUserKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      Serial: 0
+      UserName: !Ref IotUser
+  LoginIot:
+    Type: AWS::Serverless::Function
+    Properties:
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: "main.handler"
+      Runtime: "nodejs6.10"
+      CodeUri: "../app/login-iot/dist/main.zip"
+      Environment:
+        Variables:
+          IOT_AWS_REGION: "eu-central-1"
+          IOT_ACCESS_KEY: !Ref IotUserKey
+          IOT_SECRET_KEY: !GetAtt IotUserKey.SecretAccessKey
+          FOTOBUCKET_NAME: !Ref FotobucketName
+  SPADeployment:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Join ["", [!Ref WebAppBucketName, ".s3.amazonaws.com"]]
+            Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Enabled: 'true'
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+          - GET
+          - HEAD
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: allow-all
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+    DependsOn:
+      - WebAppBucket
+      - ImageBucket
+  LoginIotEndpoint:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: "ServerlessFotobox"
+  LoginIotResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      RestApiId: !Ref LoginIotEndpoint
+      ParentId: !GetAtt LoginIotEndpoint.RootResourceId
+      PathPart: "login"
+  LoginIotMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      ResourceId: !Ref LoginIotResource
+      RestApiId: !Ref LoginIotEndpoint
+      Integration:
+        Type: "AWS"
+        IntegrationHttpMethod: "POST"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+          - lambdaArn: !GetAtt "LoginIot.Arn"
+      AuthorizationType: "None"
+      HttpMethod: "GET"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+             "application/json": "Empty"
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  LoginIotDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - "LoginIotMethod"
+    Properties:
+      RestApiId: !Ref LoginIotEndpoint
+      StageName: "prod"
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: LoginIotEndpoint
+      ResourceId:
+        Ref: LoginIotResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseTemplates:
+            application/json: 'Empty'
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+  ServerFunctionPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt LoginIot.Arn
+      Principal: "apigateway.amazonaws.com"
+      "SourceArn": {"Fn::Join": ["", ["arn:aws:execute-api:", {"Ref": "AWS::Region"}, ":", {"Ref": "AWS::AccountId"}, ":", {"Ref": "LoginIotEndpoint"}, "/*"]]}
+
+Outputs:
+  LoginApiDomain:
+    Value: !Join ["", [!Ref LoginIotEndpoint, ".execute-api.", !Ref "AWS::Region", ".", !Ref "AWS::URLSuffix"]]
+  FotoBucketName:
+    Value: !Ref FotobucketName
+  UploadUserSecret:
+    Value: !GetAtt UploadUserKey.SecretAccessKey
+  UploadUserAccess:
+    Value: !Ref UploadUserKey
+  WebAppBucketName:
+    Value: !Ref WebAppBucketName
