@@ -5,7 +5,7 @@
   "dependencies": {
     "aws-iot-device-sdk": "^2.2.1",
     "aws-sdk": "^2.288.0",
-    "axios": "^0.18.0",
+    "axios": "^0.18.1",
     "data-urls": "^1.0.1",
     "parse-data-url": "^1.0.0",
     "react": "^16.4.2",
